@@ -3,6 +3,8 @@ import torch
 
 from torch_ac.format import default_preprocess_obss
 from torch_ac.utils import DictList, ParallelEnv
+import collections
+
 
 class BaseAlgo(ABC):
     """The base class for RL algorithms."""
@@ -79,7 +81,7 @@ class BaseAlgo(ABC):
         shape = (self.num_frames_per_proc, self.num_procs)
 
         self.obs = self.env.reset()
-        self.obss = [None]*(shape[0])
+        self.obss = [None] * (shape[0])
         if self.acmodel.recurrent:
             self.memory = torch.zeros(shape[1], self.acmodel.memory_size, device=self.device)
             self.memories = torch.zeros(*shape, self.acmodel.memory_size, device=self.device)
@@ -88,18 +90,45 @@ class BaseAlgo(ABC):
         self.actions = torch.zeros(*shape, device=self.device, dtype=torch.int)
         self.values = torch.zeros(*shape, device=self.device)
         self.rewards = torch.zeros(*shape, device=self.device)
+        self.rewards_PERFORMANCE = torch.zeros(*shape, device=self.device)
+        self.rewards_BUTTON_PRESSES = torch.zeros(*shape, device=self.device)
+        self.rewards_PHONES_CLEANED = torch.zeros(*shape, device=self.device)
+        self.rewards_DIRT_CLEANED = torch.zeros(*shape, device=self.device)
         self.advantages = torch.zeros(*shape, device=self.device)
         self.log_probs = torch.zeros(*shape, device=self.device)
 
         # Initialize log values
 
+        self.log_episode_return_MESSES = torch.zeros(self.num_procs, device=self.device)
+
+        self.log_episode_return_PERFORMANCE_FULL = torch.zeros(self.num_procs, device=self.device)
+
+        self.log_episode_return_PERFORMANCE = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_return_BUTTON_PRESSES = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_return_PHONES_CLEANED = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_return_DIRT_CLEANED = torch.zeros(self.num_procs, device=self.device)
+
         self.log_episode_return = torch.zeros(self.num_procs, device=self.device)
         self.log_episode_reshaped_return = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_reshaped_return_PERFORMANCE = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_reshaped_return_BUTTON_PRESSES = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_reshaped_return_PHONES_CLEANED = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_reshaped_return_DIRT_CLEANED = torch.zeros(self.num_procs, device=self.device)
         self.log_episode_num_frames = torch.zeros(self.num_procs, device=self.device)
 
         self.log_done_counter = 0
         self.log_return = [0] * self.num_procs
+        self.log_return_MESSES = [0] * self.num_procs
+        self.log_return_PERFORMANCE_FULL = [0] * self.num_procs
+        self.log_return_PERFORMANCE = [0] * self.num_procs
+        self.log_return_BUTTON_PRESSES = [0] * self.num_procs
+        self.log_return_PHONES_CLEANED = [0] * self.num_procs
+        self.log_return_DIRT_CLEANED = [0] * self.num_procs
         self.log_reshaped_return = [0] * self.num_procs
+        self.log_reshaped_return_PERFORMANCE = [0] * self.num_procs
+        self.log_reshaped_return_BUTTON_PRESSES = [0] * self.num_procs
+        self.log_reshaped_return_PHONES_CLEANED = [0] * self.num_procs
+        self.log_reshaped_return_DIRT_CLEANED = [0] * self.num_procs
         self.log_num_frames = [0] * self.num_procs
 
     def collect_experiences(self):
@@ -123,6 +152,17 @@ class BaseAlgo(ABC):
             reward, policy loss, value loss, etc.
         """
 
+        hasMesses = False
+        hasPerf = False
+        hasPerfFull = False
+        hasButtonPresses = False
+        hasPhonesCleaned = False
+        hasDirtCleaned = False
+
+        addedAllMyData = False
+        loggedAllMyData = False
+        allMyData = None
+
         for i in range(self.num_frames_per_proc):
             # Do one agent-environment interaction
 
@@ -134,7 +174,39 @@ class BaseAlgo(ABC):
                     dist, value = self.acmodel(preprocessed_obs)
             action = dist.sample()
 
-            obs, reward, done, _ = self.env.step(action.cpu().numpy())
+            obs, reward, done, info = self.env.step(action.cpu().numpy())
+
+            if not addedAllMyData:
+                pass
+                # for iiiii in info:
+                #     allMyData_ = iiiii.get('allMyData', None)
+                #     if allMyData_:
+                #         addedAllMyData = True
+                #         allMyData = allMyData_
+
+            if 'messes_cleaned' in info[0]:
+                hasMesses = True
+                messes = tuple([i['messes_cleaned'] for i in info])
+
+            if 'performance_full' in info[0]:
+                hasPerfFull = True
+                performancesFULL = tuple([i['performance_full'] for i in info])
+
+            if 'performance' in info[0]:
+                hasPerf = True
+                performances = tuple([i['performance'] for i in info])
+
+            if 'button_presses' in info[0]:
+                hasButtonPresses = True
+                button_presses = tuple([i['button_presses'] for i in info])
+
+            if 'phones_cleaned' in info[0]:
+                hasPhonesCleaned = True
+                phones_cleaned = tuple([i['phones_cleaned'] for i in info])
+
+            if 'dirt_cleaned' in info[0]:
+                hasDirtCleaned = True
+                dirt_cleaned = tuple([i['dirt_cleaned'] for i in info])
 
             # Update experiences values
 
@@ -152,25 +224,102 @@ class BaseAlgo(ABC):
                     self.reshape_reward(obs_, action_, reward_, done_)
                     for obs_, action_, reward_, done_ in zip(obs, action, reward, done)
                 ], device=self.device)
+
+                assert False, "no idea how to use performance here"
             else:
                 self.rewards[i] = torch.tensor(reward, device=self.device)
+                if hasPerf:
+                    self.rewards_PERFORMANCE[i] = torch.tensor(performances, device=self.device)
+                if hasButtonPresses:
+                    self.rewards_BUTTON_PRESSES[i] = torch.tensor(button_presses, device=self.device)
+                if hasPhonesCleaned:
+                    self.rewards_PHONES_CLEANED[i] = torch.tensor(phones_cleaned, device=self.device)
+                if hasDirtCleaned:
+                    self.rewards_DIRT_CLEANED[i] = torch.tensor(dirt_cleaned, device=self.device)
+
             self.log_probs[i] = dist.log_prob(action)
 
             # Update log values
+            if hasMesses:
+                self.log_episode_return_MESSES += torch.tensor(messes, device=self.device, dtype=torch.float)
+            # Update log values
+            if hasPerfFull:
+                self.log_episode_return_PERFORMANCE_FULL += torch.tensor(performancesFULL, device=self.device,
+                                                                         dtype=torch.float)
+            # Update log values
+            if hasPerf:
+                self.log_episode_return_PERFORMANCE += torch.tensor(performances, device=self.device, dtype=torch.float)
+            # Update log values
+            if hasButtonPresses:
+                self.log_episode_return_BUTTON_PRESSES += torch.tensor(button_presses, device=self.device,
+                                                                       dtype=torch.float)
+            # Update log values
+            if hasPhonesCleaned:
+                self.log_episode_return_PHONES_CLEANED += torch.tensor(phones_cleaned, device=self.device,
+                                                                       dtype=torch.float)
+            # Update log values
+            if hasDirtCleaned:
+                self.log_episode_return_DIRT_CLEANED += torch.tensor(dirt_cleaned, device=self.device,
+                                                                     dtype=torch.float)
 
             self.log_episode_return += torch.tensor(reward, device=self.device, dtype=torch.float)
             self.log_episode_reshaped_return += self.rewards[i]
+
+            self.log_episode_reshaped_return_PERFORMANCE += self.rewards_PERFORMANCE[i]
+            self.log_episode_reshaped_return_BUTTON_PRESSES += self.rewards_BUTTON_PRESSES[i]
+            self.log_episode_reshaped_return_PHONES_CLEANED += self.rewards_PHONES_CLEANED[i]
+            self.log_episode_reshaped_return_DIRT_CLEANED += self.rewards_DIRT_CLEANED[i]
+
             self.log_episode_num_frames += torch.ones(self.num_procs, device=self.device)
 
             for i, done_ in enumerate(done):
                 if done_:
                     self.log_done_counter += 1
+
+                    if hasMesses:
+                        self.log_return_MESSES.append(self.log_episode_return_MESSES[i].item())
+
+                    if hasPerfFull:
+                        self.log_return_PERFORMANCE_FULL.append(self.log_episode_return_PERFORMANCE_FULL[i].item())
+
+                    if hasPerf:
+                        self.log_return_PERFORMANCE.append(self.log_episode_return_PERFORMANCE[i].item())
+                        self.log_reshaped_return_PERFORMANCE.append(
+                            self.log_episode_reshaped_return_PERFORMANCE[i].item())
+
+                    if hasPhonesCleaned:
+                        self.log_return_BUTTON_PRESSES.append(self.log_episode_return_BUTTON_PRESSES[i].item())
+                        self.log_reshaped_return_BUTTON_PRESSES.append(
+                            self.log_episode_reshaped_return_BUTTON_PRESSES[i].item())
+
+                    if hasButtonPresses:
+                        self.log_return_PHONES_CLEANED.append(self.log_episode_return_PHONES_CLEANED[i].item())
+                        self.log_reshaped_return_PHONES_CLEANED.append(
+                            self.log_episode_reshaped_return_PHONES_CLEANED[i].item())
+
+                    if hasDirtCleaned:
+                        self.log_return_DIRT_CLEANED.append(self.log_episode_return_DIRT_CLEANED[i].item())
+                        self.log_reshaped_return_DIRT_CLEANED.append(
+                            self.log_episode_reshaped_return_DIRT_CLEANED[i].item())
+
                     self.log_return.append(self.log_episode_return[i].item())
                     self.log_reshaped_return.append(self.log_episode_reshaped_return[i].item())
+
                     self.log_num_frames.append(self.log_episode_num_frames[i].item())
 
             self.log_episode_return *= self.mask
+            self.log_episode_return_PERFORMANCE_FULL *= self.mask
+            self.log_episode_return_MESSES *= self.mask
+            self.log_episode_return_PERFORMANCE *= self.mask
+            self.log_episode_return_BUTTON_PRESSES *= self.mask
+            self.log_episode_return_PHONES_CLEANED *= self.mask
+            self.log_episode_return_DIRT_CLEANED *= self.mask
+
             self.log_episode_reshaped_return *= self.mask
+            self.log_episode_reshaped_return_PERFORMANCE *= self.mask
+            self.log_episode_reshaped_return_BUTTON_PRESSES *= self.mask
+            self.log_episode_reshaped_return_PHONES_CLEANED *= self.mask
+            self.log_episode_reshaped_return_DIRT_CLEANED *= self.mask
             self.log_episode_num_frames *= self.mask
 
         # Add advantage and return to experiences
@@ -183,9 +332,9 @@ class BaseAlgo(ABC):
                 _, next_value = self.acmodel(preprocessed_obs)
 
         for i in reversed(range(self.num_frames_per_proc)):
-            next_mask = self.masks[i+1] if i < self.num_frames_per_proc - 1 else self.mask
-            next_value = self.values[i+1] if i < self.num_frames_per_proc - 1 else next_value
-            next_advantage = self.advantages[i+1] if i < self.num_frames_per_proc - 1 else 0
+            next_mask = self.masks[i + 1] if i < self.num_frames_per_proc - 1 else self.mask
+            next_value = self.values[i + 1] if i < self.num_frames_per_proc - 1 else next_value
+            next_advantage = self.advantages[i + 1] if i < self.num_frames_per_proc - 1 else 0
 
             delta = self.rewards[i] + self.discount * next_value * next_mask - self.values[i]
             self.advantages[i] = delta + self.discount * self.gae_lambda * next_advantage * next_mask
@@ -227,8 +376,30 @@ class BaseAlgo(ABC):
             "return_per_episode": self.log_return[-keep:],
             "reshaped_return_per_episode": self.log_reshaped_return[-keep:],
             "num_frames_per_episode": self.log_num_frames[-keep:],
-            "num_frames": self.num_frames
+            "num_frames": self.num_frames,
+
+            "messes_per_episode": self.log_return_MESSES[-keep:],
+            "performance_full_per_episode": self.log_return_PERFORMANCE_FULL[-keep:],
+
+            "performance_per_episode": self.log_return_PERFORMANCE[-keep:],
+            "reshaped_performance_per_episode": self.log_reshaped_return_PERFORMANCE[-keep:],
+
+            "buttons_per_episode": self.log_return_BUTTON_PRESSES[-keep:],
+            "reshaped_buttons_per_episode": self.log_reshaped_return_BUTTON_PRESSES[-keep:],
+
+            "phones_per_episode": self.log_return_PHONES_CLEANED[-keep:],
+            "reshaped_phones_per_episode": self.log_reshaped_return_PHONES_CLEANED[-keep:],
+
+            "dirt_per_episode": self.log_return_DIRT_CLEANED[-keep:],
+            "reshaped_dirt_per_episode": self.log_reshaped_return_DIRT_CLEANED[-keep:],
+            "numberOfPermutes": info[0]['numberOfPermutes'],
+            "buttonValue": info[0]['buttonValue'],
         }
+
+        if allMyData and not loggedAllMyData:
+            # loggedAllMyData = True
+            # logs['allMyData'] = allMyData
+            pass
 
         self.log_done_counter = 0
         self.log_return = self.log_return[-self.num_procs:]

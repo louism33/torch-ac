@@ -118,6 +118,7 @@ class PPOAlgo(BaseAlgo):
         # Log some values
 
         logs = {
+            "X_entropy": numpy.mean(log_entropies),
             "entropy": numpy.mean(log_entropies),
             "value": numpy.mean(log_values),
             "policy_loss": numpy.mean(log_policy_losses),
