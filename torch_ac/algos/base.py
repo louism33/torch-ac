@@ -394,6 +394,7 @@ class BaseAlgo(ABC):
             "reshaped_dirt_per_episode": self.log_reshaped_return_DIRT_CLEANED[-keep:],
             "numberOfPermutes": info[0]['numberOfPermutes'],
             "buttonValue": info[0]['buttonValue'],
+            "episodesDone": self.log_done_counter,
         }
 
         if allMyData and not loggedAllMyData:
