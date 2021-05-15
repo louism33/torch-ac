@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
+
 import torch
 
 from torch_ac.format import default_preprocess_obss
 from torch_ac.utils import DictList, ParallelEnv
-import collections
 
 
 class BaseAlgo(ABC):
@@ -176,14 +176,6 @@ class BaseAlgo(ABC):
 
             obs, reward, done, info = self.env.step(action.cpu().numpy())
 
-            if not addedAllMyData:
-                pass
-                # for iiiii in info:
-                #     allMyData_ = iiiii.get('allMyData', None)
-                #     if allMyData_:
-                #         addedAllMyData = True
-                #         allMyData = allMyData_
-
             if 'messes_cleaned' in info[0]:
                 hasMesses = True
                 messes = tuple([i['messes_cleaned'] for i in info])
@@ -225,7 +217,7 @@ class BaseAlgo(ABC):
                     for obs_, action_, reward_, done_ in zip(obs, action, reward, done)
                 ], device=self.device)
 
-                assert False, "no idea how to use performance here"
+                assert False
             else:
                 self.rewards[i] = torch.tensor(reward, device=self.device)
                 if hasPerf:
@@ -396,11 +388,6 @@ class BaseAlgo(ABC):
             "buttonValue": info[0]['buttonValue'],
             "episodesDone": self.log_done_counter,
         }
-
-        if allMyData and not loggedAllMyData:
-            # loggedAllMyData = True
-            # logs['allMyData'] = allMyData
-            pass
 
         self.log_done_counter = 0
         self.log_return = self.log_return[-self.num_procs:]
