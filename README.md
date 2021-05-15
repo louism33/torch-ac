@@ -1,6 +1,6 @@
 With thanks to Lucas Willems (lcswillems), author of https://github.com/lcswillems/torch-ac
 
-Minor changes from forked repo, only adding some performance logging for use in https://github.com/louism33/rl-starter-files and https://github.com/louism33/gym-minigrid
+Minor changes from forked repo, only adding some performance logging for use in https://github.com/louism33/gym-minigrid and https://github.com/louism33/rl-starter-files
 
 
 
